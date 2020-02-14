@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 // Copyright 2019 Devolutions <info@devolutions.net>
 //
@@ -156,7 +156,8 @@ struct ws_frame {
 	enum ws_type  op;
 	bool          final;
 	bool          masked;
-	size_t        bufsz; // allocated size
+	size_t        asize; // allocated size
+	uint8_t *     adata;
 	uint8_t *     buf;
 	nng_aio *     aio;
 };
@@ -341,8 +342,8 @@ ws_make_accept(const char *key, char *accept)
 static void
 ws_frame_fini(ws_frame *frame)
 {
-	if (frame->bufsz != 0) {
-		nni_free(frame->buf, frame->bufsz);
+	if (frame->asize != 0) {
+		nni_free(frame->adata, frame->asize);
 	}
 	NNI_FREE_STRUCT(frame);
 }
@@ -403,7 +404,7 @@ ws_msg_init_control(
 	frame->head[1] = len & 0x7F;
 	frame->hlen    = 2;
 	frame->buf     = frame->sdata;
-	frame->bufsz   = 0;
+	frame->asize   = 0;
 
 	if (ws->server) {
 		frame->masked = false;
@@ -446,14 +447,15 @@ ws_frame_prep_tx(nni_ws *ws, ws_frame *frame)
 	}
 	// Potentially allocate space for the data if we need to.
 	// Note that an empty message is legal.
-	if ((frame->bufsz < frame->len) && (frame->len > 0)) {
-		nni_free(frame->buf, frame->bufsz);
-		frame->buf = nni_alloc(frame->len);
-		if (frame->buf == NULL) {
-			frame->bufsz = 0;
+	if ((frame->asize < frame->len) && (frame->len > 0)) {
+		nni_free(frame->adata, frame->asize);
+		frame->adata = nni_alloc(frame->len);
+		if (frame->adata == NULL) {
+			frame->asize = 0;
 			return (NNG_ENOMEM);
 		}
-		frame->bufsz = frame->len;
+		frame->asize = frame->len;
+		frame->buf = frame->adata;
 	}
 	buf = frame->buf;
 
@@ -846,12 +848,14 @@ ws_read_finish_str(nni_ws *ws)
 				// This eats the entire iov.
 				n = iov->iov_len;
 			}
-			memcpy(iov->iov_buf, frame->buf, n);
-			iov->iov_buf = ((uint8_t *) iov->iov_buf) + n;
-			iov->iov_len -= n;
-			if (iov->iov_len == 0) {
-				iov++;
-				niov--;
+			if (n != 0) {
+				memcpy(iov->iov_buf, frame->buf, n);
+				iov->iov_buf = ((uint8_t *) iov->iov_buf) + n;
+				iov->iov_len -= n;
+				if (iov->iov_len == 0) {
+					iov++;
+					niov--;
+				}
 			}
 
 			if (frame->len == n) {
@@ -1008,15 +1012,15 @@ ws_read_cb(void *arg)
 
 	if (frame->hlen == 0) {
 		frame->hlen   = 2;
-		frame->op     = frame->head[0] & 0x7f;
-		frame->final  = (frame->head[0] & 0x80) ? 1 : 0;
-		frame->masked = (frame->head[1] & 0x80) ? 1 : 0;
+		frame->op     = frame->head[0] & 0x7fu;
+		frame->final  = (frame->head[0] & 0x80u) ? 1 : 0;
+		frame->masked = (frame->head[1] & 0x80u) ? 1 : 0;
 		if (frame->masked) {
 			frame->hlen += 4;
 		}
-		if ((frame->head[1] & 0x7F) == 127) {
+		if ((frame->head[1] & 0x7Fu) == 127) {
 			frame->hlen += 8;
-		} else if ((frame->head[1] & 0x7F) == 126) {
+		} else if ((frame->head[1] & 0x7Fu) == 126) {
 			frame->hlen += 2;
 		}
 
@@ -1043,7 +1047,7 @@ ws_read_cb(void *arg)
 	if (frame->buf == NULL) {
 
 		// Determine expected frame size.
-		switch ((frame->len = (frame->head[1] & 0x7F))) {
+		switch ((frame->len = (frame->head[1] & 0x7Fu))) {
 		case 127:
 			NNI_GET64(frame->head + 2, frame->len);
 			if (frame->len < 65536) {
@@ -1107,15 +1111,16 @@ ws_read_cb(void *arg)
 			// Short frames can avoid an alloc
 			if (frame->len < 126) {
 				frame->buf   = frame->sdata;
-				frame->bufsz = 0;
+				frame->asize = 0;
 			} else {
-				frame->buf = nni_alloc(frame->len);
-				if (frame->buf == NULL) {
+				frame->adata = nni_alloc(frame->len);
+				if (frame->adata == NULL) {
 					ws_close(ws, WS_CLOSE_INTERNAL);
 					nni_mtx_unlock(&ws->mtx);
 					return;
 				}
-				frame->bufsz = frame->len;
+				frame->asize = frame->len;
+				frame->buf = frame->adata;
 			}
 
 			iov.iov_buf = frame->buf;
@@ -1225,11 +1230,11 @@ ws_fini(void *arg)
 
 	nni_strfree(ws->reqhdrs);
 	nni_strfree(ws->reshdrs);
-	nni_aio_fini(ws->rxaio);
-	nni_aio_fini(ws->txaio);
-	nni_aio_fini(ws->closeaio);
-	nni_aio_fini(ws->httpaio);
-	nni_aio_fini(ws->connaio);
+	nni_aio_free(ws->rxaio);
+	nni_aio_free(ws->txaio);
+	nni_aio_free(ws->closeaio);
+	nni_aio_free(ws->httpaio);
+	nni_aio_free(ws->connaio);
 	nni_mtx_fini(&ws->mtx);
 	NNI_FREE_STRUCT(ws);
 }
@@ -1406,11 +1411,11 @@ ws_init(nni_ws **wsp)
 	nni_aio_list_init(&ws->sendq);
 	nni_aio_list_init(&ws->recvq);
 
-	if (((rv = nni_aio_init(&ws->closeaio, ws_close_cb, ws)) != 0) ||
-	    ((rv = nni_aio_init(&ws->txaio, ws_write_cb, ws)) != 0) ||
-	    ((rv = nni_aio_init(&ws->rxaio, ws_read_cb, ws)) != 0) ||
-	    ((rv = nni_aio_init(&ws->httpaio, ws_http_cb, ws)) != 0) ||
-	    ((rv = nni_aio_init(&ws->connaio, ws_conn_cb, ws)) != 0)) {
+	if (((rv = nni_aio_alloc(&ws->closeaio, ws_close_cb, ws)) != 0) ||
+	    ((rv = nni_aio_alloc(&ws->txaio, ws_write_cb, ws)) != 0) ||
+	    ((rv = nni_aio_alloc(&ws->rxaio, ws_read_cb, ws)) != 0) ||
+	    ((rv = nni_aio_alloc(&ws->httpaio, ws_http_cb, ws)) != 0) ||
+	    ((rv = nni_aio_alloc(&ws->connaio, ws_conn_cb, ws)) != 0)) {
 		ws_fini(ws);
 		return (rv);
 	}
@@ -2606,7 +2611,7 @@ ws_str_recv(void *arg, nng_aio *aio)
 	}
 	nni_list_append(&ws->recvq, aio);
 	if (nni_list_first(&ws->recvq) == aio) {
-		ws_read_finish_msg(ws);
+		ws_read_finish(ws);
 	}
 	ws_start_read(ws);
 

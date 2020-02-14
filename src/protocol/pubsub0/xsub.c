@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -9,7 +9,6 @@
 //
 
 #include <stdlib.h>
-#include <string.h>
 
 #include "core/nng_impl.h"
 #include "nng/protocol/pubsub0/sub.h"
@@ -42,21 +41,15 @@ struct xsub0_sock {
 struct xsub0_pipe {
 	nni_pipe *  pipe;
 	xsub0_sock *sub;
-	nni_aio *   aio_recv;
+	nni_aio    aio_recv;
 };
 
 static int
-xsub0_sock_init(void **sp, nni_sock *sock)
+xsub0_sock_init(void *arg, nni_sock *sock)
 {
-	xsub0_sock *s;
-
-	if ((s = NNI_ALLOC_STRUCT(s)) == NULL) {
-		return (NNG_ENOMEM);
-	}
-	nni_mtx_init(&s->lk);
+	xsub0_sock *s = arg;
 
 	s->urq = nni_sock_recvq(sock);
-	*sp    = s;
 	return (0);
 }
 
@@ -65,7 +58,6 @@ xsub0_sock_fini(void *arg)
 {
 	xsub0_sock *s = arg;
 	nni_mtx_fini(&s->lk);
-	NNI_FREE_STRUCT(s);
 }
 
 static void
@@ -85,7 +77,7 @@ xsub0_pipe_stop(void *arg)
 {
 	xsub0_pipe *p = arg;
 
-	nni_aio_stop(p->aio_recv);
+	nni_aio_stop(&p->aio_recv);
 }
 
 static void
@@ -93,27 +85,18 @@ xsub0_pipe_fini(void *arg)
 {
 	xsub0_pipe *p = arg;
 
-	nni_aio_fini(p->aio_recv);
-	NNI_FREE_STRUCT(p);
+	nni_aio_fini(&p->aio_recv);
 }
 
 static int
-xsub0_pipe_init(void **pp, nni_pipe *pipe, void *s)
+xsub0_pipe_init(void *arg, nni_pipe *pipe, void *s)
 {
-	xsub0_pipe *p;
-	int         rv;
+	xsub0_pipe *p = arg;
 
-	if ((p = NNI_ALLOC_STRUCT(p)) == NULL) {
-		return (NNG_ENOMEM);
-	}
-	if ((rv = nni_aio_init(&p->aio_recv, xsub0_recv_cb, p)) != 0) {
-		xsub0_pipe_fini(p);
-		return (rv);
-	}
+	nni_aio_init(&p->aio_recv, xsub0_recv_cb, p);
 
 	p->pipe = pipe;
 	p->sub  = s;
-	*pp     = p;
 	return (0);
 }
 
@@ -127,7 +110,7 @@ xsub0_pipe_start(void *arg)
 		return (NNG_EPROTO);
 	}
 
-	nni_pipe_recv(p->pipe, p->aio_recv);
+	nni_pipe_recv(p->pipe, &p->aio_recv);
 	return (0);
 }
 
@@ -136,7 +119,7 @@ xsub0_pipe_close(void *arg)
 {
 	xsub0_pipe *p = arg;
 
-	nni_aio_close(p->aio_recv);
+	nni_aio_close(&p->aio_recv);
 }
 
 static void
@@ -147,29 +130,25 @@ xsub0_recv_cb(void *arg)
 	nni_msgq *  urq = s->urq;
 	nni_msg *   msg;
 
-	if (nni_aio_result(p->aio_recv) != 0) {
+	if (nni_aio_result(&p->aio_recv) != 0) {
 		nni_pipe_close(p->pipe);
 		return;
 	}
 
-	msg = nni_aio_get_msg(p->aio_recv);
-	nni_aio_set_msg(p->aio_recv, NULL);
+	msg = nni_aio_get_msg(&p->aio_recv);
+	nni_aio_set_msg(&p->aio_recv, NULL);
 	nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
 
-	switch (nni_msgq_tryput(urq, msg)) {
-	case 0:
-		break;
-	case NNG_EAGAIN:
+	if (nni_msgq_tryput(urq, msg) != 0) {
+		// This only happens for two reasons.  For flow control,
+		// in which case we just want to discard the message and
+		// carry on, and for a close of the socket (which is very
+		// hard to achieve, since we close the pipes.)  In either
+		// case the easiest thing to do is just free the message
+		// and try again.
 		nni_msg_free(msg);
-		break;
-	default:
-		// Any other error we stop the pipe for.  It's probably
-		// NNG_ECLOSED anyway.
-		nng_msg_free(msg);
-		nni_pipe_close(p->pipe);
-		return;
 	}
-	nni_pipe_recv(p->pipe, p->aio_recv);
+	nni_pipe_recv(p->pipe, &p->aio_recv);
 }
 
 static void
@@ -190,6 +169,7 @@ xsub0_sock_recv(void *arg, nni_aio *aio)
 // This is the global protocol structure -- our linkage to the core.
 // This should be the only global non-static symbol in this file.
 static nni_proto_pipe_ops xsub0_pipe_ops = {
+	.pipe_size  = sizeof(xsub0_pipe),
 	.pipe_init  = xsub0_pipe_init,
 	.pipe_fini  = xsub0_pipe_fini,
 	.pipe_start = xsub0_pipe_start,
@@ -205,6 +185,7 @@ static nni_option xsub0_sock_options[] = {
 };
 
 static nni_proto_sock_ops xsub0_sock_ops = {
+	.sock_size    = sizeof(xsub0_sock),
 	.sock_init    = xsub0_sock_init,
 	.sock_fini    = xsub0_sock_fini,
 	.sock_open    = xsub0_sock_open,

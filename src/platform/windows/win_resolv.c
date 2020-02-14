@@ -1,5 +1,5 @@
 //
-// Copyright 2018 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -36,7 +36,7 @@ typedef struct resolv_item resolv_item;
 struct resolv_item {
 	int          family;
 	int          passive;
-	const char * name;
+	char *       name;
 	int          proto;
 	int          socktype;
 	uint16_t     port;
@@ -60,6 +60,7 @@ resolv_cancel(nni_aio *aio, void *arg, int rv)
 		// so we can just discard everything.
 		nni_aio_list_remove(aio);
 		nni_mtx_unlock(&resolv_mtx);
+		nni_strfree(item->name);
 		NNI_FREE_STRUCT(item);
 	} else {
 		// Resolver still working, so just unlink our AIO to
@@ -225,9 +226,16 @@ resolv_ip(const char *host, const char *serv, int passive, int family,
 		nni_aio_finish_error(aio, NNG_ENOMEM);
 		return;
 	}
+	if (host == NULL) {
+		item->name = NULL;
+	} else if ((item->name = nni_strdup(host)) == NULL) {
+		nni_aio_finish_error(aio, NNG_ENOMEM);
+		NNI_FREE_STRUCT(item);
+		return;
+	}
+
 	memset(&item->sa, 0, sizeof(item->sa));
 	item->passive  = passive;
-	item->name     = host;
 	item->proto    = proto;
 	item->aio      = aio;
 	item->family   = fam;
@@ -243,6 +251,7 @@ resolv_ip(const char *host, const char *serv, int passive, int family,
 	}
 	if (rv != 0) {
 		nni_mtx_unlock(&resolv_mtx);
+		nni_strfree(item->name);
 		NNI_FREE_STRUCT(item);
 		nni_aio_finish_error(aio, rv);
 		return;
@@ -300,52 +309,11 @@ resolv_worker(void *notused)
 			item->aio = NULL;
 
 			nni_aio_finish(aio, rv, 0);
-
-			NNI_FREE_STRUCT(item);
 		}
+		nni_strfree(item->name);
+		NNI_FREE_STRUCT(item);
 	}
 	nni_mtx_unlock(&resolv_mtx);
-}
-
-int
-nni_ntop(const nni_sockaddr *sa, char *ipstr, char *portstr)
-{
-	void *   ap;
-	uint16_t port;
-	int      af;
-	switch (sa->s_family) {
-	case NNG_AF_INET:
-		ap   = (void *) &sa->s_in.sa_addr;
-		port = sa->s_in.sa_port;
-		af   = AF_INET;
-		break;
-	case NNG_AF_INET6:
-		ap   = (void *) &sa->s_in6.sa_addr;
-		port = sa->s_in6.sa_port;
-		af   = AF_INET6;
-		break;
-	default:
-		return (NNG_EINVAL);
-	}
-	if (ipstr != NULL) {
-		if (af == AF_INET6) {
-			size_t l;
-			ipstr[0] = '[';
-			InetNtopA(af, ap, ipstr + 1, INET6_ADDRSTRLEN);
-			l          = strlen(ipstr);
-			ipstr[l++] = ']';
-			ipstr[l++] = '\0';
-		} else {
-			InetNtopA(af, ap, ipstr, INET6_ADDRSTRLEN);
-		}
-	}
-	if (portstr != NULL) {
-#ifdef NNG_LITTLE_ENDIAN
-		port = ((port >> 8) & 0xff) | ((port & 0xff) << 8);
-#endif
-		snprintf(portstr, 6, "%u", port);
-	}
-	return (0);
 }
 
 int

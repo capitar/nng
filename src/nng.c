@@ -1,5 +1,5 @@
 //
-// Copyright 2018 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -43,7 +43,7 @@ nng_close(nng_socket s)
 	}
 	// No release -- close releases it.
 	nni_sock_close(sock);
-	return (rv);
+	return (0);
 }
 
 int
@@ -626,7 +626,8 @@ nng_setopt(nng_socket s, const char *name, const void *val, size_t sz)
 }
 
 static int
-nni_socket_getx(nng_socket s, const char *name, void *val, size_t *szp, nni_type t)
+nni_socket_getx(
+    nng_socket s, const char *name, void *val, size_t *szp, nni_type t)
 {
 	nni_sock *sock;
 	int       rv;
@@ -816,6 +817,7 @@ static const struct {
 	{ NNG_ENOARG, "Option requires argument" },
 	{ NNG_EAMBIGUOUS, "Ambiguous option" },
 	{ NNG_EBADTYPE, "Incorrect type" },
+	{ NNG_ECONNSHUT, "Connection shutdown" },
 	{ NNG_EINTERNAL, "Internal error detected" },
 	{ 0, NULL },
 	// clang-format on
@@ -1099,10 +1101,17 @@ nng_msg_set_pipe(nng_msg *msg, nng_pipe p)
 	nni_msg_set_pipe(msg, p.id);
 }
 
+// This function is not supported, but we keep it around to
+// satisfy link dependencies in old programs.  It has never done
+// anything useful.
 int
 nng_msg_getopt(nng_msg *msg, int opt, void *ptr, size_t *szp)
 {
-	return (nni_msg_getopt(msg, opt, ptr, szp));
+	NNI_ARG_UNUSED(msg);
+	NNI_ARG_UNUSED(opt);
+	NNI_ARG_UNUSED(ptr);
+	NNI_ARG_UNUSED(szp);
+	return (NNG_ENOTSUP);
 }
 
 int
@@ -1114,7 +1123,7 @@ nng_aio_alloc(nng_aio **app, void (*cb)(void *), void *arg)
 	if ((rv = nni_init()) != 0) {
 		return (rv);
 	}
-	if ((rv = nni_aio_init(&aio, (nni_cb) cb, arg)) == 0) {
+	if ((rv = nni_aio_alloc(&aio, (nni_cb) cb, arg)) == 0) {
 		nng_aio_set_timeout(aio, NNG_DURATION_DEFAULT);
 		*app = aio;
 	}
@@ -1124,7 +1133,7 @@ nng_aio_alloc(nng_aio **app, void (*cb)(void *), void *arg)
 void
 nng_aio_free(nng_aio *aio)
 {
-	nni_aio_fini(aio);
+	nni_aio_free(aio);
 }
 
 void

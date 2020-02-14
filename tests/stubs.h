@@ -72,17 +72,13 @@ fdready(int fd)
 	case 1:
 		return (true);
 	default:
+#ifdef CONVEY_H
 		ConveyError("BAD POLL RETURN!");
+#elif defined(TEST_CHECK)
+		TEST_ASSERT(0);
+#endif
 		return (false);
 	}
-}
-
-int
-nosocket(nng_socket *s)
-{
-	(void) s; // not used
-	ConveySkip("Protocol unconfigured");
-	return (NNG_ENOTSUP);
 }
 
 uint16_t
@@ -93,49 +89,5 @@ test_htons(uint16_t in)
 #endif
 	return (in);
 }
-
-#ifndef NNG_HAVE_REQ0
-#define nng_req0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_REP0
-#define nng_rep0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_PUB0
-#define nng_pub0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_SUB0
-#define nng_sub0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_PAIR0
-#define nng_pair0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_PAIR1
-#define nng_pair1_open nosocket
-#endif
-
-#ifndef NNG_HAVE_PUSH0
-#define nng_push0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_PULL0
-#define nng_pull0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_SURVEYOR0
-#define nng_surveyor0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_RESPONDENT0
-#define nng_respondent0_open nosocket
-#endif
-
-#ifndef NNG_HAVE_BUS0
-#define nng_bus0_open nosocket
-#endif
 
 #endif // STUBS_H

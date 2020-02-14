@@ -1,5 +1,5 @@
 //
-// Copyright 2018 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 // Copyright 2018 Devolutions <info@devolutions.net>
 //
@@ -11,16 +11,10 @@
 
 #include "core/nng_impl.h"
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/uio.h>
 #include <unistd.h>
 
 #ifndef SOCK_CLOEXEC
@@ -28,16 +22,6 @@
 #endif
 
 #include "posix_tcp.h"
-
-struct nni_tcp_dialer {
-	nni_list                connq; // pending connections
-	bool                    closed;
-	bool                    nodelay;
-	bool                    keepalive;
-	struct sockaddr_storage src;
-	size_t                  srclen;
-	nni_mtx                 mtx;
-};
 
 // Dialer stuff.
 int
@@ -51,6 +35,9 @@ nni_tcp_dialer_init(nni_tcp_dialer **dp)
 	nni_mtx_init(&d->mtx);
 	d->closed = false;
 	nni_aio_list_init(&d->connq);
+	nni_atomic_init_bool(&d->fini);
+	nni_atomic_init64(&d->ref);
+	nni_atomic_inc64(&d->ref);
 	*dp = d;
 	return (0);
 }
@@ -77,12 +64,29 @@ nni_tcp_dialer_close(nni_tcp_dialer *d)
 	nni_mtx_unlock(&d->mtx);
 }
 
+static void
+tcp_dialer_fini(nni_tcp_dialer *d)
+{
+	nni_mtx_fini(&d->mtx);
+	NNI_FREE_STRUCT(d);
+}
+
 void
 nni_tcp_dialer_fini(nni_tcp_dialer *d)
 {
 	nni_tcp_dialer_close(d);
-	nni_mtx_fini(&d->mtx);
-	NNI_FREE_STRUCT(d);
+	nni_atomic_set_bool(&d->fini, true);
+	nni_posix_tcp_dialer_rele(d);
+}
+
+void
+nni_posix_tcp_dialer_rele(nni_tcp_dialer *d)
+{
+	if (((nni_atomic_dec64_nv(&d->ref) != 0)) ||
+	    (!nni_atomic_get_bool(&d->fini))) {
+		return;
+	}
+	tcp_dialer_fini(d);
 }
 
 static void
@@ -107,7 +111,7 @@ tcp_dialer_cancel(nni_aio *aio, void *arg, int rv)
 }
 
 static void
-tcp_dialer_cb(nni_posix_pfd *pfd, int ev, void *arg)
+tcp_dialer_cb(nni_posix_pfd *pfd, unsigned ev, void *arg)
 {
 	nni_tcp_conn *  c = arg;
 	nni_tcp_dialer *d = c->dialer;
@@ -123,7 +127,7 @@ tcp_dialer_cb(nni_posix_pfd *pfd, int ev, void *arg)
 		return;
 	}
 
-	if (ev & POLLNVAL) {
+	if ((ev & NNI_POLL_INVAL) != 0) {
 		rv = EBADF;
 
 	} else {
@@ -193,19 +197,22 @@ nni_tcp_dial(nni_tcp_dialer *d, nni_aio *aio)
 		return;
 	}
 
-	// This arranges for the fd to be in nonblocking mode, and adds the
-	// pollfd to the list.
+	nni_atomic_inc64(&d->ref);
+
+	if ((rv = nni_posix_tcp_alloc(&c, d)) != 0) {
+		nni_aio_finish_error(aio, rv);
+		nni_posix_tcp_dialer_rele(d);
+		return;
+	}
+
+	// This arranges for the fd to be in non-blocking mode, and adds the
+	// poll fd to the list.
 	if ((rv = nni_posix_pfd_init(&pfd, fd)) != 0) {
 		(void) close(fd);
-		nni_aio_finish_error(aio, rv);
-		return;
+		goto error;
 	}
-	if ((rv = nni_posix_tcp_init(&c, pfd)) != 0) {
-		nni_posix_pfd_fini(pfd);
-		nni_aio_finish_error(aio, rv);
-		return;
-	}
-	c->dialer = d;
+
+	nni_posix_tcp_init(c, pfd);
 	nni_posix_pfd_set_cb(pfd, tcp_dialer_cb, c);
 
 	nni_mtx_lock(&d->mtx);
@@ -214,7 +221,7 @@ nni_tcp_dial(nni_tcp_dialer *d, nni_aio *aio)
 		goto error;
 	}
 	if (d->srclen != 0) {
-		if ((rv = bind(fd, (void *) &d->src, d->srclen)) != 0) {
+		if (bind(fd, (void *) &d->src, d->srclen) != 0) {
 			rv = nni_plat_errno(errno);
 			goto error;
 		}
@@ -222,13 +229,13 @@ nni_tcp_dial(nni_tcp_dialer *d, nni_aio *aio)
 	if ((rv = nni_aio_schedule(aio, tcp_dialer_cancel, d)) != 0) {
 		goto error;
 	}
-	if ((rv = connect(fd, (void *) &ss, sslen)) != 0) {
+	if (connect(fd, (void *) &ss, sslen) != 0) {
 		if (errno != EINPROGRESS) {
 			rv = nni_plat_errno(errno);
 			goto error;
 		}
 		// Asynchronous connect.
-		if ((rv = nni_posix_pfd_arm(pfd, POLLOUT)) != 0) {
+		if ((rv = nni_posix_pfd_arm(pfd, NNI_POLL_OUT)) != 0) {
 			goto error;
 		}
 		c->dial_aio = aio;

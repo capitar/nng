@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 // Copyright 2019 Devolutions <info@devolutions.net>
 //
@@ -102,7 +102,7 @@ ipc_listener_doaccept(ipc_listener *l)
 			case EWOULDBLOCK:
 #endif
 #endif
-				rv = nni_posix_pfd_arm(l->pfd, POLLIN);
+				rv = nni_posix_pfd_arm(l->pfd, NNI_POLL_IN);
 				if (rv != 0) {
 					nni_aio_list_remove(aio);
 					nni_aio_finish_error(aio, rv);
@@ -124,19 +124,21 @@ ipc_listener_doaccept(ipc_listener *l)
 			}
 		}
 
-		if ((rv = nni_posix_pfd_init(&pfd, newfd)) != 0) {
-			close(newfd);
+		if ((rv = nni_posix_ipc_alloc(&c, NULL)) != 0) {
+			(void) close(newfd);
 			nni_aio_list_remove(aio);
 			nni_aio_finish_error(aio, rv);
 			continue;
 		}
 
-		if ((rv = nni_posix_ipc_init(&c, pfd)) != 0) {
-			nni_posix_pfd_fini(pfd);
+		if ((rv = nni_posix_pfd_init(&pfd, newfd)) != 0) {
+			nng_stream_free(&c->stream);
 			nni_aio_list_remove(aio);
 			nni_aio_finish_error(aio, rv);
 			continue;
 		}
+
+		nni_posix_ipc_init(c, pfd);
 
 		nni_aio_list_remove(aio);
 		nni_posix_ipc_start(c);
@@ -146,13 +148,13 @@ ipc_listener_doaccept(ipc_listener *l)
 }
 
 static void
-ipc_listener_cb(nni_posix_pfd *pfd, int events, void *arg)
+ipc_listener_cb(nni_posix_pfd *pfd, unsigned events, void *arg)
 {
 	ipc_listener *l = arg;
 	NNI_ARG_UNUSED(pfd);
 
 	nni_mtx_lock(&l->mtx);
-	if (events & POLLNVAL) {
+	if ((events & NNI_POLL_INVAL) != 0) {
 		ipc_listener_doclose(l);
 		nni_mtx_unlock(&l->mtx);
 		return;
@@ -183,13 +185,13 @@ static int
 ipc_remove_stale(const char *path)
 {
 	int                fd;
-	struct sockaddr_un sun;
+	struct sockaddr_un sa;
 	size_t             sz;
 
-	sun.sun_family = AF_UNIX;
-	sz             = sizeof(sun.sun_path);
+	sa.sun_family = AF_UNIX;
+	sz             = sizeof(sa.sun_path);
 
-	if (nni_strlcpy(sun.sun_path, path, sz) >= sz) {
+	if (nni_strlcpy(sa.sun_path, path, sz) >= sz) {
 		return (NNG_EADDRINVAL);
 	}
 
@@ -203,7 +205,7 @@ ipc_remove_stale(const char *path)
 	// then the cleanup will fail.  As this is supposed to be an
 	// exceptional case, don't worry.
 	(void) fcntl(fd, F_SETFL, O_NONBLOCK);
-	if (connect(fd, (void *) &sun, sizeof(sun)) < 0) {
+	if (connect(fd, (void *) &sa, sizeof(sa)) < 0) {
 		if (errno == ECONNREFUSED) {
 			(void) unlink(path);
 		}

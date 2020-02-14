@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 // Copyright 2019 Devolutions <info@devolutions.net>
 //
@@ -15,22 +15,18 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/un.h>
-#include <unistd.h>
 #if defined(NNG_HAVE_GETPEERUCRED)
 #include <ucred.h>
 #elif defined(NNG_HAVE_LOCALPEERCRED) || defined(NNG_HAVE_SOCKPEERCRED)
 #include <sys/ucred.h>
 #endif
-
-#ifdef NNG_HAVE_ALLOCA
-#include <alloca.h>
+#if defined(NNG_HAVE_GETPEEREID)
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 #ifndef MSG_NOSIGNAL
@@ -58,29 +54,16 @@ ipc_dowrite(ipc_conn *c)
 		unsigned      naiov;
 		nni_iov *     aiov;
 		struct msghdr hdr;
-#ifdef NNG_HAVE_ALLOCA
-		struct iovec *iovec;
-#else
-		struct iovec iovec[16];
-#endif
+		struct iovec  iovec[16];
 
 		memset(&hdr, 0, sizeof(hdr));
 		nni_aio_get_iov(aio, &naiov, &aiov);
 
-#ifdef NNG_HAVE_ALLOCA
-		if (naiov > 64) {
-			nni_aio_list_remove(aio);
-			nni_aio_finish_error(aio, NNG_EINVAL);
-			continue;
-		}
-		iovec = alloca(naiov * sizeof(*iovec));
-#else
 		if (naiov > NNI_NUM_ELEMENTS(iovec)) {
 			nni_aio_list_remove(aio);
 			nni_aio_finish_error(aio, NNG_EINVAL);
 			continue;
 		}
-#endif
 
 		for (niov = 0, i = 0; i < naiov; i++) {
 			if (aiov[i].iov_len > 0) {
@@ -134,32 +117,19 @@ ipc_doread(ipc_conn *c)
 	}
 
 	while ((aio = nni_list_first(&c->readq)) != NULL) {
-		unsigned i;
-		int      n;
-		int      niov;
-		unsigned naiov;
-		nni_iov *aiov;
-#ifdef NNG_HAVE_ALLOCA
-		struct iovec *iovec;
-#else
+		unsigned     i;
+		int          n;
+		int          niov;
+		unsigned     naiov;
+		nni_iov *    aiov;
 		struct iovec iovec[16];
-#endif
 
 		nni_aio_get_iov(aio, &naiov, &aiov);
-#ifdef NNG_HAVE_ALLOCA
-		if (naiov > 64) {
-			nni_aio_list_remove(aio);
-			nni_aio_finish_error(aio, NNG_EINVAL);
-			continue;
-		}
-		iovec = alloca(naiov * sizeof(*iovec));
-#else
 		if (naiov > NNI_NUM_ELEMENTS(iovec)) {
 			nni_aio_list_remove(aio);
 			nni_aio_finish_error(aio, NNG_EINVAL);
 			continue;
 		}
-#endif
 		for (niov = 0, i = 0; i < naiov; i++) {
 			if (aiov[i].iov_len != 0) {
 				iovec[niov].iov_len  = aiov[i].iov_len;
@@ -186,7 +156,7 @@ ipc_doread(ipc_conn *c)
 			// No bytes indicates a closed descriptor.
 			// This implicitly completes this (all!) aio.
 			nni_aio_list_remove(aio);
-			nni_aio_finish_error(aio, NNG_ECLOSED);
+			nni_aio_finish_error(aio, NNG_ECONNSHUT);
 			continue;
 		}
 
@@ -202,6 +172,22 @@ ipc_doread(ipc_conn *c)
 }
 
 static void
+ipc_error(void *arg, int err)
+{
+	ipc_conn *c = arg;
+	nni_aio * aio;
+
+	nni_mtx_lock(&c->mtx);
+	while (((aio = nni_list_first(&c->readq)) != NULL) ||
+	    ((aio = nni_list_first(&c->writeq)) != NULL)) {
+		nni_aio_list_remove(aio);
+		nni_aio_finish_error(aio, err);
+	}
+	nni_posix_pfd_close(c->pfd);
+	nni_mtx_unlock(&c->mtx);
+}
+
+static void
 ipc_close(void *arg)
 {
 	ipc_conn *c = arg;
@@ -214,33 +200,35 @@ ipc_close(void *arg)
 			nni_aio_list_remove(aio);
 			nni_aio_finish_error(aio, NNG_ECLOSED);
 		}
-		nni_posix_pfd_close(c->pfd);
+		if (c->pfd != NULL) {
+			nni_posix_pfd_close(c->pfd);
+		}
 	}
 	nni_mtx_unlock(&c->mtx);
 }
 
 static void
-ipc_cb(nni_posix_pfd *pfd, int events, void *arg)
+ipc_cb(nni_posix_pfd *pfd, unsigned events, void *arg)
 {
 	ipc_conn *c = arg;
 
-	if (events & (POLLHUP | POLLERR | POLLNVAL)) {
-		ipc_close(c);
+	if (events & (NNI_POLL_HUP | NNI_POLL_ERR | NNI_POLL_INVAL)) {
+		ipc_error(c, NNG_ECONNSHUT);
 		return;
 	}
 	nni_mtx_lock(&c->mtx);
-	if (events & POLLIN) {
+	if ((events & NNI_POLL_IN) != 0) {
 		ipc_doread(c);
 	}
-	if (events & POLLOUT) {
+	if ((events & NNI_POLL_OUT) != 0) {
 		ipc_dowrite(c);
 	}
 	events = 0;
 	if (!nni_list_empty(&c->writeq)) {
-		events |= POLLOUT;
+		events |= NNI_POLL_OUT;
 	}
 	if (!nni_list_empty(&c->readq)) {
-		events |= POLLIN;
+		events |= NNI_POLL_IN;
 	}
 	if ((!c->closed) && (events != 0)) {
 		nni_posix_pfd_arm(pfd, events);
@@ -497,17 +485,27 @@ nni_posix_ipc_start(nni_ipc_conn *c)
 }
 
 static void
-ipc_free(void *arg)
+ipc_reap(void *arg)
 {
 	ipc_conn *c = arg;
 	ipc_close(c);
-	nni_posix_pfd_fini(c->pfd);
-	nni_mtx_lock(&c->mtx); // not strictly needed, but shut up TSAN
-	c->pfd = NULL;
-	nni_mtx_unlock(&c->mtx);
+	if (c->pfd != NULL) {
+		nni_posix_pfd_fini(c->pfd);
+	}
 	nni_mtx_fini(&c->mtx);
 
+	if (c->dialer != NULL) {
+		nni_posix_ipc_dialer_rele(c->dialer);
+	}
+
 	NNI_FREE_STRUCT(c);
+}
+
+static void
+ipc_free(void *arg)
+{
+	ipc_conn *c = arg;
+	nni_reap(&c->reap, ipc_reap, c);
 }
 
 static const nni_option ipc_options[] = {
@@ -555,7 +553,7 @@ ipc_setx(void *arg, const char *name, const void *val, size_t sz, nni_type t)
 }
 
 int
-nni_posix_ipc_init(nni_ipc_conn **cp, nni_posix_pfd *pfd)
+nni_posix_ipc_alloc(nni_ipc_conn **cp, nni_ipc_dialer *d)
 {
 	ipc_conn *c;
 
@@ -564,7 +562,7 @@ nni_posix_ipc_init(nni_ipc_conn **cp, nni_posix_pfd *pfd)
 	}
 
 	c->closed         = false;
-	c->pfd            = pfd;
+	c->dialer         = d;
 	c->stream.s_free  = ipc_free;
 	c->stream.s_close = ipc_close;
 	c->stream.s_send  = ipc_send;
@@ -578,4 +576,10 @@ nni_posix_ipc_init(nni_ipc_conn **cp, nni_posix_pfd *pfd)
 
 	*cp = c;
 	return (0);
+}
+
+void
+nni_posix_ipc_init(nni_ipc_conn *c, nni_posix_pfd *pfd)
+{
+	c->pfd = pfd;
 }

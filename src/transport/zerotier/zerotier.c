@@ -1,6 +1,5 @@
 //
-// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
-// Copyright 2018 Capitar IT Group BV <info@capitar.com>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -35,7 +34,7 @@
 // to the Internet to use this.  (Or at least to your Planetary root.)
 //
 // Because ZeroTier takes a while to establish connectivity, it is even
-// more important that applicaitons using the ZeroTier transport not
+// more important that applications using the ZeroTier transport not
 // assume that a connection will be immediately available.  It can take
 // quite a few seconds for peer-to-peer connectivity to be established.
 //
@@ -136,7 +135,7 @@ enum zt_errors {
 	zt_err_refused = 0x01, // Connection refused
 	zt_err_notconn = 0x02, // Connection does not exit
 	zt_err_wrongsp = 0x03, // SP protocol mismatch
-	zt_err_proto   = 0x04, // Other protocol errror
+	zt_err_proto   = 0x04, // Other protocol error
 	zt_err_msgsize = 0x05, // Message to large
 	zt_err_unknown = 0x06, // Other errors
 };
@@ -268,7 +267,7 @@ struct zt_ep {
 // honest we don't think anyone will be using the ZeroTier transport in
 // performance critical applications; scalability may become a factor for
 // large servers sitting in a ZeroTier hub situation.  (Then again, since
-// only the zerotier procesing is single threaded, it may not
+// only the zerotier processing is single threaded, it may not
 // be that much of a bottleneck -- really depends on how expensive these
 // operations are.  We can use lockstat or other lock-hotness tools to
 // check for this later.)
@@ -437,7 +436,7 @@ static uint64_t
 zt_mac_to_node(uint64_t mac, uint64_t nwid)
 {
 	uint64_t node;
-	// This extracts a node address from a mac addres.  The
+	// This extracts a node address from a mac address.  The
 	// network ID is mixed in, and has to be extricated.  We
 	// the node ID is located in the lower 40 bits, and scrambled
 	// against the nwid.
@@ -1332,12 +1331,12 @@ zt_wire_packet_send(ZT_Node *node, void *userptr, void *thr, int64_t socket,
 		return (-1);
 	}
 
-	if (nni_aio_init(&aio, NULL, NULL) != 0) {
+	if (nni_aio_alloc(&aio, NULL, NULL) != 0) {
 		// Out of memory
 		return (-1);
 	}
 	if ((buf = nni_alloc(sizeof(*hdr) + len)) == NULL) {
-		nni_aio_fini(aio);
+		nni_aio_free(aio);
 		return (-1);
 	}
 
@@ -1364,7 +1363,7 @@ zt_wire_packet_send(ZT_Node *node, void *userptr, void *thr, int64_t socket,
 	// care which.  (There may be a few thread context switches, but
 	// none of them are going to have to wait for some unbounded time.)
 	nni_aio_wait(aio);
-	nni_aio_fini(aio);
+	nni_aio_free(aio);
 	nni_free(hdr, hdr->len + sizeof(*hdr));
 
 	return (0);
@@ -1411,8 +1410,8 @@ zt_node_destroy(zt_node *ztn)
 	if (ztn->zn_flock != NULL) {
 		nni_file_unlock(ztn->zn_flock);
 	}
-	nni_aio_fini(ztn->zn_rcv4_aio);
-	nni_aio_fini(ztn->zn_rcv6_aio);
+	nni_aio_free(ztn->zn_rcv4_aio);
+	nni_aio_free(ztn->zn_rcv6_aio);
 	nni_idhash_fini(ztn->zn_eps);
 	nni_idhash_fini(ztn->zn_lpipes);
 	nni_idhash_fini(ztn->zn_rpipes);
@@ -1445,8 +1444,8 @@ zt_node_create(zt_node **ztnp, const char *path)
 	NNI_LIST_INIT(&ztn->zn_eplist, zt_ep, ze_link);
 	NNI_LIST_INIT(&ztn->zn_plist, zt_pipe, zp_link);
 	nni_cv_init(&ztn->zn_bgcv, &zt_lk);
-	nni_aio_init(&ztn->zn_rcv4_aio, zt_node_rcv4_cb, ztn);
-	nni_aio_init(&ztn->zn_rcv6_aio, zt_node_rcv6_cb, ztn);
+	nni_aio_alloc(&ztn->zn_rcv4_aio, zt_node_rcv4_cb, ztn);
+	nni_aio_alloc(&ztn->zn_rcv6_aio, zt_node_rcv6_cb, ztn);
 
 	if (((ztn->zn_rcv4_buf = nni_alloc(zt_rcv_bufsize)) == NULL) ||
 	    ((ztn->zn_rcv6_buf = nni_alloc(zt_rcv_bufsize)) == NULL)) {
@@ -1647,7 +1646,7 @@ zt_pipe_fini(void *arg)
 	zt_pipe *p   = arg;
 	zt_node *ztn = p->zp_ztn;
 
-	nni_aio_fini(p->zp_ping_aio);
+	nni_aio_free(p->zp_ping_aio);
 
 	// This tosses the connection details and all state.
 	nni_mtx_lock(&zt_lk);
@@ -1680,7 +1679,7 @@ zt_pipe_alloc(
 	zt_node *ztn = ep->ze_ztn;
 	int      i;
 	size_t   maxfrag;
-	size_t   maxfrags;
+	size_t   maxfrags = 0;
 
 	if ((p = NNI_ALLOC_STRUCT(p)) == NULL) {
 		return (NNG_ENOMEM);
@@ -1710,7 +1709,7 @@ zt_pipe_alloc(
 		rv = nni_idhash_insert(ztn->zn_lpipes, laddr, p);
 	}
 	if ((rv != 0) ||
-	    ((rv = nni_aio_init(&p->zp_ping_aio, zt_pipe_ping_cb, p)) != 0)) {
+	    ((rv = nni_aio_alloc(&p->zp_ping_aio, zt_pipe_ping_cb, p)) != 0)) {
 		zt_pipe_reap(p);
 		return (rv);
 	}
@@ -2083,7 +2082,7 @@ zt_ep_fini(void *arg)
 {
 	zt_ep *ep = arg;
 	nni_aio_stop(ep->ze_creq_aio);
-	nni_aio_fini(ep->ze_creq_aio);
+	nni_aio_free(ep->ze_creq_aio);
 	NNI_FREE_STRUCT(ep);
 }
 
@@ -2159,7 +2158,7 @@ zt_ep_init(void **epp, nni_url *url, nni_sock *sock, nni_dialer *ndialer,
 
 	nni_aio_list_init(&ep->ze_aios);
 
-	rv = nni_aio_init(&ep->ze_creq_aio, zt_ep_conn_req_cb, ep);
+	rv = nni_aio_alloc(&ep->ze_creq_aio, zt_ep_conn_req_cb, ep);
 	if (rv != 0) {
 		zt_ep_fini(ep);
 		return (rv);
