@@ -157,6 +157,10 @@ extern void nni_plat_thr_fini(nni_plat_thr *);
 // prevention in callbacks, for example.)
 extern bool nni_plat_thr_is_self(nni_plat_thr *);
 
+// nni_plat_thr_set_name is used to set the thread name, which
+// should be a short ASCII string.  It may or may not be supported --
+// this is intended to facilitate debugging.
+extern void nni_plat_thr_set_name(nni_plat_thr *, const char *);
 //
 // Atomics support.  This will evolve over time.
 //
@@ -338,6 +342,12 @@ extern void nni_tcp_resolv(const char *, const char *, int, int, nni_aio *);
 // nni_udp_resolv is just like nni_tcp_resolv, but looks up
 // service names using UDP.
 extern void nni_udp_resolv(const char *, const char *, int, int, nni_aio *);
+
+// nni_parse_ip parses an IP address, without a port.
+extern int nni_parse_ip(const char *, nng_sockaddr *);
+
+// nni_parse_ip_port parses an IP address with an optional port appended.
+extern int nni_parse_ip_port(const char *, nng_sockaddr *);
 
 //
 // IPC (UNIX Domain Sockets & Named Pipes) Support.

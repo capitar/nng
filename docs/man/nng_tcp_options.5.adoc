@@ -1,6 +1,6 @@
 = nng_tcp_options(5)
 //
-// Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 // Copyright 2019 Devolutions <info@devolutions.net>
 //
@@ -12,7 +12,7 @@
 
 == NAME
 
-nng_tcp_options - TTCP-specific options
+nng_tcp_options - TCP-specific options
 
 == SYNOPSIS
 
@@ -28,7 +28,7 @@ nng_tcp_options - TTCP-specific options
 == DESCRIPTION
 
 This page documents the various standard options that can be set or
-retrieved on objects using TCP in the _nng_ library.
+retrieved on objects using TCP.
 
 The option names should always be used by their symbolic definitions.
 

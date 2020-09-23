@@ -159,7 +159,7 @@ NOTE: At least one protocol must be selected.
 === Peer Selection Options
 NOTE: At least one peer address must be selected.
 
-TIP: While legacy _nanocat_ only supported one peer, _nng_ can support
+TIP: While legacy _nanocat_ only supported one peer, _nngcat_ can support
 more than one peer on a given connection.
 
 *--connect, --dial*=_URL_::
@@ -242,7 +242,7 @@ Protocols that support sending data can use these options to select the data.
   Use _DATA_ for the body of outgoing messages.
 
 *-F, --file*=_FILE_::
-  Use _FILE_ for the body of outgoing messages.
+  Use _FILE_ for the body of outgoing messages. If _FILE_ is _-_ the message body will be read from standard input.
 
 *-i, --interval*=_SEC_::
   For protocols that send unsolicited data (as opposed to those that

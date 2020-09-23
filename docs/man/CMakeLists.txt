@@ -1,5 +1,5 @@
 #
-# Copyright 2019 Staysail Systems, Inc. <info@staysail.tech>
+# Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 # Copyright 2018 Capitar IT Group BV <info@capitar.com>
 # Copyright 2019 Devolutions <info@devolutions.net>
 #
@@ -303,6 +303,7 @@ if (NNG_ENABLE_DOC)
             nng_random
             nng_thread_create
             nng_thread_destroy
+            nng_thread_set_name
             )
 
     set(NNG_MAN3STR
@@ -337,6 +338,9 @@ if (NNG_ENABLE_DOC)
             nng_tls_config_hold
             nng_tls_config_own_cert
             nng_tls_config_server_name
+            nng_tls_engine_description
+            nng_tls_engine_fips_mode
+            nng_tls_engine_name
             )
 
     set(NNG_MAN5
@@ -357,6 +361,7 @@ if (NNG_ENABLE_DOC)
             nng_sockaddr_zt
             nng_socket
             nng_stat
+            nng_url
 
             nng_stream
             nng_stream_dialer
@@ -365,6 +370,7 @@ if (NNG_ENABLE_DOC)
             nng_tcp_options
             nng_ipc_options
             nng_tls_config
+            nng_tls_engine
             nng_tls_options
             )
 

@@ -8,8 +8,8 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#ifndef NNG_H
-#define NNG_H
+#ifndef NNG_NNG_H
+#define NNG_NNG_H
 
 // NNG (nanomsg-next-gen) is an improved implementation of the SP protocols.
 // The APIs have changed, and there is no attempt to provide API compatibility
@@ -47,13 +47,11 @@ extern "C" {
 
 // NNG Library & API version.
 // We use SemVer, and these versions are about the API, and
-// may not necessarily match the ABI versions. Right now at
-// version 0, you should not be making any forward compatibility
-// assumptions.
+// may not necessarily match the ABI versions.
 #define NNG_MAJOR_VERSION 1
-#define NNG_MINOR_VERSION 3
+#define NNG_MINOR_VERSION 4
 #define NNG_PATCH_VERSION 0
-#define NNG_RELEASE_SUFFIX "dev" // if non-empty, this is a pre-release
+#define NNG_RELEASE_SUFFIX "DEV" // if non-empty, this is a pre-release
 
 // Maximum length of a socket address. This includes the terminating NUL.
 // This limit is built into other implementations, so do not change it.
@@ -763,10 +761,8 @@ NNG_DECL nng_dialer   nng_pipe_dialer(nng_pipe);
 NNG_DECL nng_listener nng_pipe_listener(nng_pipe);
 
 // Flags.
-enum nng_flag_enum {
-	NNG_FLAG_ALLOC    = 1, // Recv to allocate receive buffer.
-	NNG_FLAG_NONBLOCK = 2  // Non-blocking operations.
-};
+#define NNG_FLAG_ALLOC 1u // Recv to allocate receive buffer
+#define NNG_FLAG_NONBLOCK 2u // Non-blocking operations
 
 // Options.
 #define NNG_OPT_SOCKNAME "socket-name"
@@ -1263,4 +1259,4 @@ NNG_DECL int nng_stream_listener_set_addr(
 }
 #endif
 
-#endif // NNG_H
+#endif // NNG_NNG_H
