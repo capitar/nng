@@ -209,7 +209,7 @@ struct zt_pipe {
 	nni_aio *       zp_ping_aio;
 	uint8_t *       zp_send_buf;
 	nni_atomic_flag zp_reaped;
-	nni_reap_item   zp_reap;
+	nni_reap_node   zp_reap;
 };
 
 typedef struct zt_creq zt_creq;
@@ -1344,7 +1344,6 @@ zt_wire_packet_send(ZT_Node *node, void *userptr, void *thr, int64_t socket,
 	buf += sizeof(*hdr);
 
 	memcpy(buf, data, len);
-	nni_aio_set_data(aio, 0, hdr);
 	hdr->sa  = addr;
 	hdr->len = len;
 	nni_aio_set_input(aio, 0, &hdr->sa);
@@ -1717,11 +1716,16 @@ zt_pipe_fini(void *arg)
 	NNI_FREE_STRUCT(p);
 }
 
+static nni_reap_list zt_reap_list = {
+       .rl_offset = offsetof(zt_pipe, zp_reap),
+       .rl_func   = zt_pipe_fini,
+};
+
 static void
 zt_pipe_reap(zt_pipe *p)
 {
 	if (!nni_atomic_flag_test_and_set(&p->zp_reaped)) {
-		nni_reap(&p->zp_reap, zt_pipe_fini, p);
+		nni_reap(&zt_reap_list, p);
 	}
 }
 
