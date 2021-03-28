@@ -2804,7 +2804,7 @@ zt_ep_set_clear_local_addrs(void *arg, const void *data, size_t sz, nni_type t)
 		nni_mtx_unlock(&zt_lk);
 		return (rv);
 	}
-	zn = ep->ze_ztn;
+	zn = ep->ze_ztn->zn_znode;
 	ZT_Node_clearLocalInterfaceAddresses(zn);
 	nni_mtx_unlock(&zt_lk);
 	return (0);
