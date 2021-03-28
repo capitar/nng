@@ -333,7 +333,7 @@ tcp_listener_get_locaddr(void *arg, void *buf, size_t *szp, nni_type t)
 		socklen_t               len = sizeof(ss);
 		(void) getsockname(
 		    nni_posix_pfd_fd(l->pfd), (void *) &ss, &len);
-		(void) nni_posix_sockaddr2nn(&sa, &ss);
+		(void) nni_posix_sockaddr2nn(&sa, &ss, len);
 	} else {
 		sa.s_family = NNG_AF_UNSPEC;
 	}
@@ -416,14 +416,14 @@ static const nni_option tcp_listener_options[] = {
 };
 
 int
-nni_tcp_listener_getopt(
+nni_tcp_listener_get(
     nni_tcp_listener *l, const char *name, void *buf, size_t *szp, nni_type t)
 {
 	return (nni_getopt(tcp_listener_options, name, l, buf, szp, t));
 }
 
 int
-nni_tcp_listener_setopt(nni_tcp_listener *l, const char *name, const void *buf,
+nni_tcp_listener_set(nni_tcp_listener *l, const char *name, const void *buf,
     size_t sz, nni_type t)
 {
 	return (nni_setopt(tcp_listener_options, name, l, buf, sz, t));

@@ -1,5 +1,5 @@
 //
-// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2021 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -159,14 +159,11 @@ struct nni_proto {
 // These flags determine which operations make sense.  We use them so that
 // we can reject attempts to create notification fds for operations that make
 // no sense.  Also, we can detect raw mode, thereby providing handling for
-// that at the socket layer (NNG_PROTO_FLAG_RAW).  Finally, we provide the
-// NNI_PROTO_FLAG_NOMSGQ flag for protocols that do not use the upper write
-// or upper read queues.
+// that at the socket layer (NNG_PROTO_FLAG_RAW).
 #define NNI_PROTO_FLAG_RCV 1u    // Protocol can receive
 #define NNI_PROTO_FLAG_SND 2u    // Protocol can send
 #define NNI_PROTO_FLAG_SNDRCV 3u // Protocol can both send & recv
 #define NNI_PROTO_FLAG_RAW 4u    // Protocol is raw
-#define NNI_PROTO_FLAG_NOMSGQ 8u // Protocol bypasses the upper queues
 
 // nni_proto_open is called by the protocol to create a socket instance
 // with its ops vector.  The intent is that applications will only see

@@ -217,11 +217,15 @@ tcp_fini(void *arg)
 	NNI_FREE_STRUCT(c);
 }
 
+static nni_reap_list tcp_reap_list = {
+	.rl_offset = offsetof(nni_tcp_conn, reap),
+	.rl_func   = tcp_fini,
+};
 static void
 tcp_free(void *arg)
 {
 	nni_tcp_conn *c = arg;
-	nni_reap(&c->reap, tcp_fini, arg);
+	nni_reap(&tcp_reap_list, c);
 }
 
 static void
@@ -335,15 +339,15 @@ tcp_get_peername(void *arg, void *buf, size_t *szp, nni_type t)
 {
 	nni_tcp_conn *          c = arg;
 	struct sockaddr_storage ss;
-	socklen_t               sslen = sizeof(ss);
-	int                     fd    = nni_posix_pfd_fd(c->pfd);
+	socklen_t               len = sizeof(ss);
+	int                     fd  = nni_posix_pfd_fd(c->pfd);
 	int                     rv;
 	nng_sockaddr            sa;
 
-	if (getpeername(fd, (void *) &ss, &sslen) != 0) {
+	if (getpeername(fd, (void *) &ss, &len) != 0) {
 		return (nni_plat_errno(errno));
 	}
-	if ((rv = nni_posix_sockaddr2nn(&sa, &ss)) == 0) {
+	if ((rv = nni_posix_sockaddr2nn(&sa, &ss, len)) == 0) {
 		rv = nni_copyout_sockaddr(&sa, buf, szp, t);
 	}
 	return (rv);
@@ -354,15 +358,15 @@ tcp_get_sockname(void *arg, void *buf, size_t *szp, nni_type t)
 {
 	nni_tcp_conn *          c = arg;
 	struct sockaddr_storage ss;
-	socklen_t               sslen = sizeof(ss);
-	int                     fd    = nni_posix_pfd_fd(c->pfd);
+	socklen_t               len = sizeof(ss);
+	int                     fd  = nni_posix_pfd_fd(c->pfd);
 	int                     rv;
 	nng_sockaddr            sa;
 
-	if (getsockname(fd, (void *) &ss, &sslen) != 0) {
+	if (getsockname(fd, (void *) &ss, &len) != 0) {
 		return (nni_plat_errno(errno));
 	}
-	if ((rv = nni_posix_sockaddr2nn(&sa, &ss)) == 0) {
+	if ((rv = nni_posix_sockaddr2nn(&sa, &ss, len)) == 0) {
 		rv = nni_copyout_sockaddr(&sa, buf, szp, t);
 	}
 	return (rv);
@@ -463,14 +467,14 @@ static const nni_option tcp_options[] = {
 };
 
 static int
-tcp_getx(void *arg, const char *name, void *buf, size_t *szp, nni_type t)
+tcp_get(void *arg, const char *name, void *buf, size_t *szp, nni_type t)
 {
 	nni_tcp_conn *c = arg;
 	return (nni_getopt(tcp_options, name, c, buf, szp, t));
 }
 
 static int
-tcp_setx(void *arg, const char *name, const void *buf, size_t sz, nni_type t)
+tcp_set(void *arg, const char *name, const void *buf, size_t sz, nni_type t)
 {
 	nni_tcp_conn *c = arg;
 	return (nni_setopt(tcp_options, name, c, buf, sz, t));
@@ -495,8 +499,8 @@ nni_posix_tcp_alloc(nni_tcp_conn **cp, nni_tcp_dialer *d)
 	c->stream.s_close = tcp_close;
 	c->stream.s_recv  = tcp_recv;
 	c->stream.s_send  = tcp_send;
-	c->stream.s_getx  = tcp_getx;
-	c->stream.s_setx  = tcp_setx;
+	c->stream.s_get   = tcp_get;
+	c->stream.s_set   = tcp_set;
 
 	*cp = c;
 	return (0);
