@@ -1,4 +1,5 @@
 //
+// Copyright 2021 Capitar IT Group BV <info@capitar.com>
 // Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -899,6 +900,7 @@ zt_pipe_recv_data(zt_pipe *p, const uint8_t *data, size_t len)
 		memset(fl->fl_missing, 0xff, nfrags / 8);
 		fl->fl_missing[nfrags / 8] |= ((1 << (nfrags % 8)) - 1);
 	}
+
 	if ((nfrags != fl->fl_nfrags) || (fragsz != fl->fl_fragsz) ||
 	    (fragno >= nfrags) || (fragsz == 0) || (nfrags == 0) ||
 	    ((fragno != (nfrags - 1)) && (len != fragsz))) {
@@ -1820,6 +1822,8 @@ zt_pipe_send(void *arg, nni_aio *aio)
 	uint16_t fragno;
 	size_t   fragsz;
 	size_t   bytes;
+	size_t   msg_header_len;
+	size_t   msg_len;
 	nni_msg *m;
 
 	if (nni_aio_begin(aio) != 0) {
@@ -1841,7 +1845,9 @@ zt_pipe_send(void *arg, nni_aio *aio)
 	fragsz = p->zp_mtu - zt_offset_data_data;
 	NNI_ASSERT(fragsz < 0x10000); // Because zp_mtu is 16 bits
 
-	bytes = nni_msg_header_len(m) + nni_msg_len(m);
+	msg_header_len = nni_msg_header_len(m);
+	msg_len = nni_msg_len(m);
+	bytes = msg_header_len + msg_len;
 	if (bytes >= (0xfffe * fragsz)) {
 		nni_aio_finish_error(aio, NNG_EMSGSIZE);
 		nni_mtx_unlock(&zt_lk);
@@ -1864,29 +1870,27 @@ zt_pipe_send(void *arg, nni_aio *aio)
 		size_t   len;
 
 		// Prepend the header first.
-		if ((len = nni_msg_header_len(m)) > 0) {
-			if (len > fragsz) {
+		if ( (!offset)  && (msg_header_len > 0)) {
+			if (msg_header_len > fragsz) {
 				// This shouldn't happen!  SP headers are
 				// supposed to be quite small.
 				nni_aio_finish_error(aio, NNG_EMSGSIZE);
 				nni_mtx_unlock(&zt_lk);
 				return;
 			}
-			memcpy(dest, nni_msg_header(m), len);
-			dest += len;
-			room -= len;
-			offset += len;
-			fraglen += len;
-			nni_msg_header_clear(m);
+			memcpy(dest, nni_msg_header(m), msg_header_len);
+			dest += msg_header_len;
+			room -= msg_header_len;
+			offset += msg_header_len;
+			fraglen += msg_header_len;
 		}
 
-		len = nni_msg_len(m);
+		len = msg_header_len + msg_len - offset;
 		if (len > room) {
 			len = room;
 		}
-		memcpy(dest, nni_msg_body(m), len);
+		memcpy(dest, nni_msg_body(m) + offset - msg_header_len, len);
 
-		nng_msg_trim(m, len);
 		NNI_PUT16(data + zt_offset_data_id, id);
 		NNI_PUT16(data + zt_offset_data_fragsz, (uint16_t) fragsz);
 		NNI_PUT16(data + zt_offset_data_frag, fragno);
@@ -1896,7 +1900,7 @@ zt_pipe_send(void *arg, nni_aio *aio)
 		fragno++;
 		zt_send(p->zp_ztn, p->zp_nwid, zt_op_data, p->zp_raddr,
 		    p->zp_laddr, data, fraglen + zt_offset_data_data);
-	} while (nni_msg_len(m) != 0);
+	} while (msg_header_len  + msg_len -offset != 0);
 	nni_mtx_unlock(&zt_lk);
 
 	// NB, We never bothered to call nn_aio_sched, because we run this
