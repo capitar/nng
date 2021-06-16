@@ -302,8 +302,12 @@ nni_plat_thr_init(nni_plat_thr *thr, void (*fn)(void *), void *arg)
 
 	// We could probably even go down to 8k... but crypto for some
 	// protocols might get bigger than this.  1MB is waaay too big.
+#ifdef NNG_TRANSPORT_ZEROTIER
+	thr->handle = (HANDLE) _beginthreadex(NULL, 131072, nni_plat_thr_main,
+#else
 	thr->handle = (HANDLE) _beginthreadex(NULL, 16384, nni_plat_thr_main,
-	    thr, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+#endif
+		thr, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
 	if (thr->handle == NULL) {
 		return (NNG_ENOMEM); // Best guess...
 	}

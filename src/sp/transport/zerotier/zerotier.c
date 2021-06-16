@@ -16,8 +16,13 @@
 #include "core/nng_impl.h"
 #include "core/platform.h"
 
-#include "platform/posix/posix_pollq.h"
-#include "platform/posix/posix_udp.h"
+#ifdef NNG_PLATFORM_WINDOWS
+  #include "platform/windows/win_udp.h"
+#else
+  #include "platform/posix/posix_pollq.h"
+  #include "platform/posix/posix_udp.h"
+#endif // NNG_PLATFORM_WINDOWS
+
 #include "zthash.h"
 
 #include "nng/transport/zerotier/zerotier.h"
@@ -3004,7 +3009,11 @@ zt_ep_get_udp4_addr(void *arg, void *data, size_t *szp, nni_type t)
 	nni_plat_udp *udp = ztn->zn_udp4;
 
 	sz = sizeof(ss);
+#ifdef NNG_PLATFORM_WINDOWS
+	if ((rv = getsockname(udp->s, (struct sockaddr *) &ss, &sz)) <
+#else
 	if ((rv = getsockname(udp->udp_fd, (struct sockaddr *) &ss, &sz)) <
+#endif // NNG_PLATFORM_WINDOWS
 	    0) {
 		return (nni_plat_errno(rv));
 	}
@@ -3029,7 +3038,11 @@ zt_ep_get_udp6_addr(void *arg, void *data, size_t *szp, nni_type t)
 	nni_plat_udp *udp = ztn->zn_udp6;
 
 	sz = sizeof(ss);
+#ifdef NNG_PLATFORM_WINDOWS
+	if ((rv = getsockname(udp->s, (struct sockaddr *) &ss, &sz)) <
+#else
 	if ((rv = getsockname(udp->udp_fd, (struct sockaddr *) &ss, &sz)) <
+#endif // NNG_PLATFORM_WINDOWS
 	    0) {
 		return (nni_plat_errno(rv));
 	}

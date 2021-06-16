@@ -18,17 +18,7 @@
 #include <malloc.h>
 #include <stdio.h>
 
-struct nni_plat_udp {
-	SOCKET           s;
-	nni_mtx          lk;
-	nni_cv           cv;
-	nni_list         rxq;
-	nni_win_io       rxio;
-	int              cancel_rv;
-	bool             closed;
-	SOCKADDR_STORAGE rxsa;
-	int              rxsalen;
-};
+#include "win_udp.h"
 
 static void udp_recv_cb(nni_win_io *, int, size_t);
 static void udp_recv_start(nni_plat_udp *);
