@@ -3015,7 +3015,7 @@ zt_ep_get_udp4_addr(void *arg, void *data, size_t *szp, nni_type t)
 	if ((rv = getsockname(udp->udp_fd, (struct sockaddr *) &ss, &sz)) <
 #endif // NNG_PLATFORM_WINDOWS
 	    0) {
-		return (nni_plat_errno(rv));
+		return (rv);
 	}
 
 	struct sockaddr_in *ssin = (struct sockaddr_in *)&ss;
@@ -3044,7 +3044,7 @@ zt_ep_get_udp6_addr(void *arg, void *data, size_t *szp, nni_type t)
 	if ((rv = getsockname(udp->udp_fd, (struct sockaddr *) &ss, &sz)) <
 #endif // NNG_PLATFORM_WINDOWS
 	    0) {
-		return (nni_plat_errno(rv));
+		return (rv);
 	}
 
 	struct sockaddr_in6 *ssin = (struct sockaddr_in6 *)&ss;

@@ -128,13 +128,21 @@ nni_plat_cv_fini(nni_plat_cv *cv)
 bool
 nni_atomic_flag_test_and_set(nni_atomic_flag *f)
 {
+#ifdef __MINGW32__
+	return (InterlockedExchange((__LONG32 volatile*)&f->f, 1) != 0);
+#else
 	return (InterlockedExchange(&f->f, 1) != 0);
+#endif
 }
 
 void
 nni_atomic_flag_reset(nni_atomic_flag *f)
 {
+#ifdef __MINGW32__
+	InterlockedExchange((__LONG32 volatile*)&f->f, 0);
+#else
 	InterlockedExchange(&f->f, 0);
+#endif
 }
 
 void
