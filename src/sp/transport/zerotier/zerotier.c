@@ -1625,31 +1625,6 @@ zt_tran_fini(void)
 }
 
 static int
-zt_check_recvmaxsz(const void *v, size_t sz, nni_type t)
-{
-	return (nni_copyin_size(NULL, v, sz, 0, NNI_MAXSZ, t));
-}
-
-static int
-zt_check_orbit(const void *v, size_t sz, nni_type t)
-{
-	NNI_ARG_UNUSED(v);
-	if ((t != NNI_TYPE_UINT64) && (t != NNI_TYPE_OPAQUE)) {
-		return (NNG_EBADTYPE);
-	}
-	if (sz != sizeof(uint64_t) && sz != sizeof(uint64_t) * 2) {
-		return (NNG_EINVAL);
-	}
-	return (0);
-}
-
-static int
-zt_check_deorbit(const void *v, size_t sz, nni_type t)
-{
-	return (nni_copyin_u64(NULL, v, sz, t));
-}
-
-static int
 zt_check_string(const void *v, size_t sz, nni_type t)
 {
 	size_t len;
@@ -1662,18 +1637,6 @@ zt_check_string(const void *v, size_t sz, nni_type t)
 		return (NNG_EINVAL);
 	}
 	return (0);
-}
-
-static int
-zt_check_time(const void *v, size_t sz, nni_type t)
-{
-	return (nni_copyin_ms(NULL, v, sz, t));
-}
-
-static int
-zt_check_tries(const void *v, size_t sz, nni_type t)
-{
-	return (nni_copyin_int(NULL, v, sz, 0, 1000000, t));
 }
 
 static void
