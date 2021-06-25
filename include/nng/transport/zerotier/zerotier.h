@@ -131,6 +131,19 @@
 // option takes no argument really.
 #define NNG_OPT_ZT_CLEAR_LOCAL_ADDRS "zt:clear-local-addrs"
 
+// NNG_OPT_ZT_PEER_LIST returns the known peers and their paths info
+// The peers are line separated and each line starts with the
+// peer ZeroTier node ID, followed by space separated path infos.
+// The path info containd the following | separated:
+// - ip family (4 or 6)
+// - ip address
+// - ip port (udp)
+// - lastSend
+// - lastReceive
+// - expired
+// - preferred
+#define NNG_OPT_ZT_PEER_LIST "zt:peer-list"
+
 #define NNG_OPT_ZT_UDP4_ADDR "zt:udp4_addr"
 #define NNG_OPT_ZT_UDP6_ADDR "zt:udp6_addr"
 

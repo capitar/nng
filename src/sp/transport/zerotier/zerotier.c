@@ -29,6 +29,11 @@
 
 #include <zerotiercore/ZeroTierOne.h>
 
+#define NNG_ZT_DEBUG 0
+
+#define NNG_ZT_LOG(fmt, ...) \
+    do { if (NNG_ZT_DEBUG) fprintf(stderr, fmt, __VA_ARGS__); } while (0)
+
 // ZeroTier Transport.  This sits on the ZeroTier L2 network, which itself
 // is implemented on top of UDP.  This requires the 3rd party
 // libzerotiercore library (which is GPLv3!) and platform specific UDP
@@ -47,7 +52,6 @@
 //
 // The ZeroTier transport was funded by Capitar IT Group, BV.
 //
-// This transport is highly experimental.
 
 // ZeroTier and UDP are connectionless, but nng is designed around
 // connection oriented paradigms.  An "unreliable" connection is created
@@ -282,6 +286,7 @@ struct zt_ep {
 static nni_mtx  zt_lk;
 static nni_list zt_nodes;
 
+static int zt_node_get_peer_list(zt_node *ztn, uint64_t peerid, void *, nni_type);
 static void zt_ep_send_conn_req(zt_ep *);
 static void zt_ep_conn_req_cb(void *);
 static void zt_ep_doaccept(zt_ep *);
@@ -557,6 +562,8 @@ zt_send(zt_node *ztn, uint64_t nwid, uint8_t op, uint64_t raddr,
 	uint64_t dstmac = zt_node_to_mac(raddr >> 24, nwid);
 	int64_t  now    = zt_now();
 
+    NNG_ZT_LOG("zt_send lid: %010lx:%lu rid: %010lx:%lu data len: %d\n", laddr >> zt_port_shift, laddr & zt_port_mask, raddr >> zt_port_shift, raddr & zt_port_mask, (int)len);
+
 	NNI_ASSERT(len >= zt_size_headers);
 	data[zt_offset_op]    = op;
 	data[zt_offset_flags] = 0;
@@ -578,6 +585,7 @@ zt_send_err(zt_node *ztn, uint64_t nwid, uint64_t raddr, uint64_t laddr,
 {
 	uint8_t data[128];
 
+    NNG_ZT_LOG("zt_send_err lid: %010lx:%lu rid: %010lx:%lu msg: %s\n", laddr >> zt_port_shift, laddr & zt_port_mask, raddr >> zt_port_shift, raddr & zt_port_mask, msg);
 	NNI_ASSERT((strlen(msg) + zt_offset_err_msg) < sizeof(data));
 
 	data[zt_offset_err_code] = err;
@@ -591,6 +599,7 @@ zt_send_err(zt_node *ztn, uint64_t nwid, uint64_t raddr, uint64_t laddr,
 static void
 zt_pipe_send_err(zt_pipe *p, uint8_t err, const char *msg)
 {
+    NNG_ZT_LOG("zt_pipe_send_err lid: %010lx:%lu rid: %010lx:%lu msg: %s\n", p->zp_laddr >> zt_port_shift, p->zp_laddr & zt_port_mask, p->zp_raddr >> zt_port_shift, p->zp_raddr & zt_port_mask, msg);
 	zt_send_err(p->zp_ztn, p->zp_nwid, p->zp_raddr, p->zp_laddr, err, msg);
 }
 
@@ -599,6 +608,7 @@ zt_pipe_send_disc_req(zt_pipe *p)
 {
 	uint8_t data[zt_size_disc_req];
 
+    NNG_ZT_LOG("zt_pipe_send_disc lid: %010lx:%lu rid: %010lx:%lu\n", p->zp_laddr >> zt_port_shift, p->zp_laddr & zt_port_mask, p->zp_raddr >> zt_port_shift, p->zp_raddr & zt_port_mask);
 	zt_send(p->zp_ztn, p->zp_nwid, zt_op_disc_req, p->zp_raddr,
 	    p->zp_laddr, data, sizeof(data));
 }
@@ -607,6 +617,11 @@ static void
 zt_pipe_send_ping(zt_pipe *p)
 {
 	uint8_t data[zt_size_ping];
+    NNG_ZT_LOG("zt_pipe_send_ping lid: %010lx:%lu rid: %010lx:%lu\n", p->zp_laddr >> zt_port_shift, p->zp_laddr & zt_port_mask, p->zp_raddr >> zt_port_shift, p->zp_raddr & zt_port_mask);
+
+#if NNG_ZT_DEBUG
+    zt_node_get_peer_list(p->zp_ztn, p->zp_raddr >> zt_port_shift, NULL, NNI_TYPE_STRING);
+#endif
 
 	zt_send(p->zp_ztn, p->zp_nwid, zt_op_ping, p->zp_raddr, p->zp_laddr,
 	    data, sizeof(data));
@@ -617,6 +632,12 @@ zt_pipe_send_pong(zt_pipe *p)
 {
 	uint8_t data[zt_size_ping];
 
+    NNG_ZT_LOG("zt_pipe_send_pong lid: %010lx:%lu rid: %010lx:%lu\n", p->zp_laddr >> zt_port_shift, p->zp_laddr & zt_port_mask, p->zp_raddr >> zt_port_shift, p->zp_raddr & zt_port_mask);
+
+#if NNG_ZT_DEBUG
+    zt_node_get_peer_list(p->zp_ztn, p->zp_raddr >> zt_port_shift, NULL, NNI_TYPE_STRING);
+#endif
+
 	zt_send(p->zp_ztn, p->zp_nwid, zt_op_pong, p->zp_raddr, p->zp_laddr,
 	    data, sizeof(data));
 }
@@ -626,6 +647,7 @@ zt_pipe_send_conn_ack(zt_pipe *p)
 {
 	uint8_t data[zt_size_conn_ack];
 
+    NNG_ZT_LOG("zt_pipe_send_con_ack lid: %010lx:%lu rid: %010lx:%lu\n", p->zp_laddr >> zt_port_shift, p->zp_laddr & zt_port_mask, p->zp_raddr >> zt_port_shift, p->zp_raddr & zt_port_mask);
 	NNI_PUT16(data + zt_offset_cack_proto, p->zp_proto);
 	zt_send(p->zp_ztn, p->zp_nwid, zt_op_conn_ack, p->zp_raddr,
 	    p->zp_laddr, data, sizeof(data));
@@ -635,6 +657,12 @@ static void
 zt_ep_send_conn_req(zt_ep *ep)
 {
 	uint8_t data[zt_size_conn_req];
+
+    NNG_ZT_LOG("zt_ep_send_con_req lid: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
+
+#if NNG_ZT_DEBUG
+    zt_node_get_peer_list(ep->ze_ztn, ep->ze_raddr >> zt_port_shift, NULL, NNI_TYPE_STRING);
+#endif
 
 	NNI_PUT16(data + zt_offset_creq_proto, ep->ze_proto);
 	zt_send(ep->ze_ztn, ep->ze_nwid, zt_op_conn_req, ep->ze_raddr,
@@ -649,6 +677,7 @@ zt_ep_recv_conn_ack(zt_ep *ep, uint64_t raddr, const uint8_t *data, size_t len)
 	zt_pipe *p;
 	int      rv;
 
+    NNG_ZT_LOG("zt_ep_recvcon_req lid: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, raddr >> zt_port_shift, raddr & zt_port_mask);
 	if (ep->ze_ndialer == NULL) {
 		zt_send_err(ztn, ep->ze_nwid, raddr, ep->ze_laddr,
 		    zt_err_proto, "Inappropriate operation");
@@ -696,6 +725,7 @@ zt_ep_recv_conn_req(zt_ep *ep, uint64_t raddr, const uint8_t *data, size_t len)
 	zt_pipe *p;
 	int      i;
 
+    NNG_ZT_LOG("zt_ep_recv_con_req lid: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, raddr >> zt_port_shift, raddr & zt_port_mask);
 	if (ep->ze_nlistener == NULL) {
 		zt_send_err(ztn, ep->ze_nwid, raddr, ep->ze_laddr,
 		    zt_err_proto, "Inappropriate operation");
@@ -749,13 +779,16 @@ zt_ep_recv_error(zt_ep *ep, const uint8_t *data, size_t len)
 	// is that when we have an outstanding CON_REQ, we would like to
 	// process that appropriately.
 
+
 	if (ep->ze_ndialer == NULL) {
 		// Not a dialer. Drop it.
+    NNG_ZT_LOG("zt_ep_recv_error, not a dialer: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 		return;
 	}
 
 	if (len < zt_offset_err_msg) {
 		// Malformed error frame.
+    NNG_ZT_LOG("zt_ep_recv_error, malformed error frame: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 		return;
 	}
 
@@ -775,6 +808,7 @@ zt_ep_recv_error(zt_ep *ep, const uint8_t *data, size_t len)
 		break;
 	}
 
+    NNG_ZT_LOG("zt_ep_recv_error, %s: %010lx:%lu rid: %010lx:%lu\n", nng_strerror(code), ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 	if (ep->ze_creq_active) {
 		ep->ze_creq_try    = 0;
 		ep->ze_creq_active = 0;
@@ -791,15 +825,19 @@ zt_ep_virtual_recv(
 	// receive are connection requests.
 	switch (op) {
 	case zt_op_conn_req:
+        NNG_ZT_LOG("zt_ep_virtual_recv zt_op_conn_req: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 		zt_ep_recv_conn_req(ep, raddr, data, len);
 		return;
 	case zt_op_conn_ack:
+        NNG_ZT_LOG("zt_ep_virtual_recv zt_op_conn_ack: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 		zt_ep_recv_conn_ack(ep, raddr, data, len);
 		return;
 	case zt_op_error:
+        NNG_ZT_LOG("zt_ep_virtual_recv zt_op_error: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 		zt_ep_recv_error(ep, data, len);
 		return;
 	default:
+        NNG_ZT_LOG("zt_ep_virtual_recv bad_opperation: %010lx:%lu rid: %010lx:%lu\n", ep->ze_laddr >> zt_port_shift, ep->ze_laddr & zt_port_mask, ep->ze_raddr >> zt_port_shift, ep->ze_raddr & zt_port_mask);
 		zt_send_err(ep->ze_ztn, ep->ze_nwid, raddr, ep->ze_laddr,
 		    zt_err_proto, "Bad operation");
 		return;
@@ -1084,6 +1122,7 @@ zt_virtual_recv(ZT_Node *node, void *userptr, void *thr, uint64_t nwid,
 	laddr <<= 24;
 	laddr |= lport;
 
+
 	// NB: We are holding the zt_lock.
 
 	// Look up a pipe, but also we use this chance to check that
@@ -1135,6 +1174,7 @@ zt_virtual_recv(ZT_Node *node, void *userptr, void *thr, uint64_t nwid,
 	case zt_op_disc_req:
 	default:
 		// Just drop these.
+         NNG_ZT_LOG("zt_virtual_recv dropped: %010lx:%lu rid: %010lx:%lu\n", laddr >> zt_port_shift, laddr & zt_port_mask, raddr >> zt_port_shift, raddr & zt_port_mask);
 		break;
 	}
 }
@@ -1154,6 +1194,7 @@ zt_event_cb(ZT_Node *node, void *userptr, void *thr, enum ZT_Event event,
 	case ZT_EVENT_DOWN:    // Teardown of the node.
 	case ZT_EVENT_OFFLINE: // Removal of the node from the net.
 	case ZT_EVENT_TRACE:   // Local trace events.
+        NNG_ZT_LOG("TRACE: %s\n", (const char *) payload);
 		// printf("TRACE: %s\n", (const char *) payload);
 		break;
 	case ZT_EVENT_REMOTE_TRACE: // Remote trace, not supported.
@@ -2710,6 +2751,90 @@ zt_ep_set_deorbit(void *arg, const void *data, size_t sz, nni_type t)
 }
 
 static int
+zt_node_get_peer_list(zt_node *ztn, uint64_t peerid, void *data, nni_type t)
+{
+	int rv;
+    ZT_PeerList *ztpeers;
+    ZT_Peer ztpeer;
+    ZT_PeerPhysicalPath ztpath;
+    struct sockaddr_in *sin;
+    struct sockaddr_in6 *sin6;
+    char addr[50];
+    int port;
+    char *info = "";
+    char *sep = "";
+    char *line_sep = "";
+
+	ztpeers = ZT_Node_peers(ztn->zn_znode);
+    rv = -1;
+    for (uint64_t i = 0; i < ztpeers->peerCount; i++) {
+        ztpeer = ztpeers->peers[i];
+        if ((peerid) && (ztpeer.address != peerid)) {
+             continue;
+        }
+
+        nni_asprintf(&info, "%s%s", info, line_sep);
+        line_sep = "\n";
+        for (uint64_t j = 0; j < ztpeer.pathCount; j++) {
+            ztpath = ztpeer.paths[j];
+            if (ztpath.address.ss_family == AF_INET) {
+                sin = (void *) &ztpath.address;
+                inet_ntop(AF_INET, &sin->sin_addr.s_addr, addr, sizeof(addr));
+                port = sin->sin_port;
+                nni_asprintf(&info, "%s%s4|%s|%d|%llu|%llu|%d|%d", info, sep, addr, port,
+                             ztpath.lastSend, ztpath.lastReceive,
+                             ztpath.expired, ztpath.preferred);
+                sep = " ";
+            } else if (ztpath.address.ss_family == AF_INET6) {
+                sin6 = (void *) &ztpath.address;
+                inet_ntop(AF_INET6, &sin6->sin6_addr.s6_addr, addr, sizeof(addr));
+                port = sin6->sin6_port;
+                nni_asprintf(&info, "%s%s6|%s|%d|%llu|%llu|%d|%d", info, sep, addr, port,
+                             ztpath.lastSend, ztpath.lastReceive,
+                             ztpath.expired, ztpath.preferred);
+                sep = " ";
+            }
+        }
+        rv = 0;
+
+        if (peerid) {
+            break;
+        }
+    }
+
+    ZT_Node_freeQueryResult(ztn->zn_znode, ztpeers);
+
+#if NNG_ZT_DEBUG
+    printf("%10lx: %s\n", peerid, info);
+#endif
+
+    if (data != NULL) {
+        rv = nni_copyout_str(info, data, NULL, t);
+        free(info);
+        return rv;
+    }
+
+	return (rv);
+}
+
+static int
+zt_ep_get_peer_list(void *arg, void *data, size_t *sz, nni_type t)
+{
+    int rv;
+	zt_ep *  ep = arg;
+    NNI_ARG_UNUSED(sz);
+
+	nni_mtx_lock(&zt_lk);
+	if ((ep->ze_ztn == NULL) && ((rv = zt_node_find(ep)) != 0)) {
+		nni_mtx_unlock(&zt_lk);
+		return (rv);
+	}
+	nni_mtx_unlock(&zt_lk);
+
+    return zt_node_get_peer_list(ep->ze_ztn, 0, data, t);
+}
+
+static int
 zt_ep_set_add_local_addr(void *arg, const void *data, size_t sz, nni_type t)
 {
 	nng_sockaddr sa;
@@ -3069,6 +3194,14 @@ zt_pipe_get_mtu(void *arg, void *data, size_t *szp, nni_type t)
 	return (nni_copyout_size(p->zp_mtu, data, szp, t));
 }
 
+static int
+zt_pipe_get_peer_list(void *arg, void *data, size_t *sz, nni_type t)
+{
+	zt_pipe *p = arg;
+    NNI_ARG_UNUSED(sz);
+    return (zt_node_get_peer_list(p->zp_ztn, 0, data, t));
+}
+
 static const nni_option zt_pipe_options[] = {
 	{
 	    .o_name = NNG_OPT_LOCADDR,
@@ -3093,6 +3226,10 @@ static const nni_option zt_pipe_options[] = {
 	{
 	    .o_name = NNG_OPT_RECVMAXSZ,
 	    .o_get  = zt_pipe_get_recvmaxsz,
+	},
+	{
+	    .o_name = NNG_OPT_ZT_PEER_LIST,
+	    .o_get  = zt_pipe_get_peer_list,
 	},
 	// terminate list
 	{
@@ -3192,6 +3329,10 @@ static nni_option zt_dialer_options[] = {
 	    .o_name = NNG_OPT_ZT_UDP6_ADDR,
 	    .o_get  = zt_ep_get_udp6_addr,
 	},
+	{
+	    .o_name = NNG_OPT_ZT_PEER_LIST,
+	    .o_get  = zt_ep_get_peer_list,
+	},
 
 	// terminate list
 	{
@@ -3267,6 +3408,10 @@ static nni_option zt_listener_options[] = {
 	{
 	    .o_name = NNG_OPT_ZT_UDP6_ADDR,
 	    .o_get  = zt_ep_get_udp6_addr,
+	},
+	{
+	    .o_name = NNG_OPT_ZT_PEER_LIST,
+	    .o_get  = zt_ep_get_peer_list,
 	},
 	// terminate list
 	{
