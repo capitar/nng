@@ -159,8 +159,8 @@ if (NNG_ENABLE_COVERAGE)
     endif ()
 endif ()
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${NNG_WARN_FLAGS} ${NNG_COVERAGE_C_FLAGS} ${NNG_SANITIZER_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${NNG_WARN_FLAGS} ${NNG_COVERAGE_C_FLAGS} ${NNG_SANITIZER_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC ${NNG_WARN_FLAGS} ${NNG_COVERAGE_C_FLAGS} ${NNG_SANITIZER_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC ${NNG_WARN_FLAGS} ${NNG_COVERAGE_C_FLAGS} ${NNG_SANITIZER_FLAGS}")
 
 # If the compiler is not on Windows, does it support hiding the
 # symbols by default?  For shared libraries we would like to do this.
