@@ -110,7 +110,7 @@ nni_chunk_grow(nni_chunk *ch, size_t newsz, size_t headwanted)
 		newsz = ch->ch_len;
 	}
 
-	if ((ch->ch_ptr >= ch->ch_buf) &&
+	if ((ch->ch_ptr >= ch->ch_buf) && (ch->ch_ptr != NULL) &&
 	    (ch->ch_ptr < (ch->ch_buf + ch->ch_cap))) {
 		size_t headroom = (size_t)(ch->ch_ptr - ch->ch_buf);
 		if (headwanted < headroom) {
@@ -454,6 +454,18 @@ nni_msg_realloc(nni_msg *m, size_t sz)
 		nni_chunk_chop(&m->m_body, m->m_body.ch_len - sz);
 	}
 	return (0);
+}
+
+int
+nni_msg_reserve(nni_msg *m, size_t capacity)
+{
+	return (nni_chunk_grow(&m->m_body, capacity, 0));
+}
+
+size_t
+nni_msg_capacity(nni_msg *m)
+{
+	return ((size_t) ((m->m_body.ch_buf + m->m_body.ch_cap) - m->m_body.ch_ptr));
 }
 
 void *
